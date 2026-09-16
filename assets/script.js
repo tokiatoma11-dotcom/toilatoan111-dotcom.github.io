@@ -25,7 +25,7 @@ let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh: Lần lượt thử các phiên bản Gemini Flash
+// 1. Phân tích hình ảnh: Sử dụng duy nhất Gemini 3.6 Flash với cấu trúc API mới
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const cleanBase64 = base64Data.split(',')[1] || base64Data;
     const apiKey = getNextGeminiKey();
@@ -34,49 +34,49 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
         return null;
     }
 
-    // Danh sách model ưu tiên từ mới đến ổn định
-    const modelsToTry = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.5-flash"
-    ];
+    // Chỉ sử dụng duy nhất model Gemini 3.6 Flash
+    const modelName = "gemini-3.6-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    for (const modelName of modelsToTry) {
-        try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            { inline_data: { mime_type: mimeType, data: cleanBase64 } },
-                            { text: `Hãy trích xuất và mô tả chi tiết toàn bộ chữ, hình ảnh, bảng biểu hoặc dữ liệu có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
-                        ]
-                    }]
-                })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (textResult) {
-                    console.log(`[Gemini Vision] Phân tích thành công bằng model: ${modelName}`);
-                    return textResult;
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{
+                    role: "user",
+                    parts: [
+                        { inline_data: { mime_type: mimeType, data: cleanBase64 } },
+                        { text: `Hãy trích xuất và mô tả chi tiết toàn bộ chữ, hình ảnh, bảng biểu hoặc dữ liệu có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
+                    ]
+                }],
+                config: {
+                    thinkingConfig: {
+                        thinkingLevel: "medium"
+                    }
                 }
-            } else {
-                const errJson = await response.json().catch(() => ({}));
-                console.warn(`[Gemini Vision] Model ${modelName} báo lỗi (${response.status}):`, errJson);
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (textResult) {
+                console.log(`[Gemini Vision] Phân tích thành công bằng model: ${modelName}`);
+                return textResult;
             }
-        } catch (err) {
-            console.error(`[Gemini Vision] Lỗi kết nối tới model ${modelName}:`, err);
+        } else {
+            const errJson = await response.json().catch(() => ({}));
+            console.error(`[Gemini Vision] Model ${modelName} báo lỗi (${response.status}):`, errJson);
         }
+    } catch (err) {
+        console.error(`[Gemini Vision] Lỗi kết nối tới model ${modelName}:`, err);
     }
 
     return null;
 }
 
-// 2. Điềi khiển Dropdown & Toggle
+// 2. Điều khiển Dropdown & Toggle
 window.toggleEffortDropdown = function(e) {
     e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
@@ -376,7 +376,7 @@ window.sendMessage = async function() {
 
         // Xử lý hình ảnh nếu có
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini Vision...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini 3.6 Flash...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {

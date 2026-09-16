@@ -1,8 +1,7 @@
 // assets/script.js
 import CONFIG from './config.js';
-import { GoogleGenAI } from "https://esm.run/@google/genai";
 
-// Lấy cấu hình API Key từ config.js
+// Cấu hình API Key từ config.js
 const GEMINI_API_KEYS = CONFIG.GEMINI_API_KEYS;
 const GROQ_API_KEY = CONFIG.GROQ_API_KEY;
 
@@ -19,44 +18,52 @@ let chats = JSON.parse(localStorage.getItem("multi_ai_chats_v26")) || [];
 let currentChatId = null;
 let selectedModel = CONFIG.DEFAULT_MODEL || "gpt_oss_120b";
 
-// Trạng thái file đính kèm tạm thời
+// Trạng thái tệp đính kèm tạm thời
 let selectedFile = { base64: null, type: null, name: null, textContent: null };
 
 let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh bằng Gemini API
+// 1. Phân tích hình ảnh - Sử dụng duy nhất Gemini 3.6 Flash qua REST API
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const cleanBase64 = base64Data.split(',')[1] || base64Data;
-    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
     const maxAttempts = GEMINI_API_KEYS.length || 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getNextGeminiKey();
         if (!apiKey) break;
 
-        const geminiAi = new GoogleGenAI({ apiKey: apiKey });
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        parts: [
+                            { inline_data: { mime_type: mimeType, data: cleanBase64 } },
+                            { text: `Hãy đóng vai mắt thần thị giác: Trích xuất và mô tả toàn bộ chữ, giao diện, bảng biểu hoặc thông tin có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
+                        ]
+                    }]
+                })
+            });
 
-        for (const modelName of modelsToTry) {
-            try {
-                const response = await geminiAi.models.generateContent({
-                    model: modelName,
-                    contents: [
-                        { inlineData: { data: cleanBase64, mimeType: mimeType } },
-                        `Hãy trích xuất và mô tả toàn bộ chi tiết, văn bản, giao diện hoặc bảng biểu trong hình ảnh này để trả lời cho yêu cầu: "${userQuery || 'ĐÂY LÀ GI'}"`
-                    ]
-                });
-                return response.text;
-            } catch (err) {
-                console.warn(`[Gemini API] Key index ${currentGeminiKeyIndex} lỗi trên model ${modelName}:`, err);
+            if (response.ok) {
+                const data = await response.json();
+                const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (textResult) return textResult;
+            } else {
+                console.warn(`[Gemini 3.6 Flash] API Key index ${currentGeminiKeyIndex} trả về mã lỗi ${response.status}`);
             }
+        } catch (err) {
+            console.error(`[Gemini 3.6 Flash] Lỗi kết nối ở Key index ${currentGeminiKeyIndex}:`, err);
         }
     }
     return null;
 }
 
-// 2. Các hàm điều khiển Giao diện Toolbar & Dropdown
+// 2. Các hàm điều khiển Dropdown & Toggle
 window.toggleEffortDropdown = function(e) {
     e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
@@ -123,7 +130,7 @@ window.selectModel = function(value, label) {
     handleModelChange(value);
 };
 
-// Search đệm bằng DuckDuckGo
+// Tìm kiếm Web qua DuckDuckGo API
 async function performWebSearch(query) {
     try {
         const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
@@ -135,7 +142,7 @@ async function performWebSearch(query) {
     } catch { return ""; }
 }
 
-// Custom Modal Dialog
+// Modal thông báo tùy chỉnh
 function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     const modalOverlay = document.getElementById("customModalOverlay");
     if (!modalOverlay) return;
@@ -167,7 +174,7 @@ function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     });
 }
 
-// 3. Quản lý File Đính kèm & Xóa bộ nhớ đệm
+// 3. Quản lý Tệp
 window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu')?.classList.toggle('active'); };
 window.openInput = (id) => { document.getElementById(id)?.click(); document.getElementById('attachMenu')?.classList.remove('active'); };
 
@@ -213,7 +220,7 @@ window.clearSelectedFile = function() {
     document.getElementById("filePreview")?.classList.remove("active");
 };
 
-// 4. Quản lý Sidebar & Lịch sử Chat
+// 4. Sidebar & Quản lý Đoạn Chat
 window.toggleSidebar = () => {
     document.getElementById("sidebar")?.classList.toggle("open");
     document.getElementById("overlay")?.classList.toggle("active");
@@ -315,7 +322,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// 5. Gửi Tin nhắn và Xử lý Luồng dữ liệu Vision -> Groq API
+// 5. Gửi tin nhắn & xử lý dữ liệu qua Gemini 3.6 Flash -> Groq API
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -326,7 +333,6 @@ window.sendMessage = async function() {
     const active = chats.find(c => c.id === currentChatId);
     active.model = selectedModel;
 
-    // Trích xuất file hiện tại và DỌN SẠCH DỮ LIỆU TẠM NGAY LẬP TỨC
     const currentFile = selectedFile.base64 ? { ...selectedFile } : null;
     clearSelectedFile();
 
@@ -355,15 +361,15 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Xử lý đọc hình ảnh qua Gemini Mắt thần
+        // Xử lý ảnh qua Gemini 3.6 Flash
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini 3.6 Flash...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                apiContent = `[Nội dung chi tiết trích xuất từ hình ảnh]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
+                apiContent = `[Thông tin trích xuất từ ảnh qua Gemini 3.6 Flash]:\n${visionResult}\n\n[Câu hỏi của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
             } else {
-                apiContent = `[Hệ thống: Không thể đọc dữ liệu hình ảnh].\n${prompt}`;
+                apiContent = `[Hệ thống: Không thể đọc dữ liệu từ hình ảnh này].\n${prompt}`;
             }
         }
 
@@ -376,10 +382,8 @@ window.sendMessage = async function() {
             if (searchRes) apiContent = `${searchRes}\n\n[Yêu cầu]: ${prompt}`;
         }
 
-        // GÁN NỘI DUNG ĐÃ TỔNG HỢP (GỒM KẾT QUẢ ĐỌC ẢNH) VÀO TIN NHẮN
         userMessage.apiText = apiContent;
 
-        // Tạo payload gửi cho Groq API (Sử dụng apiText đã có nội dung ảnh)
         const payload = active.messages.map(m => ({ 
             role: m.role === 'user' ? 'user' : 'assistant', 
             content: m.apiText || m.text 
@@ -531,6 +535,6 @@ document.getElementById("chatBox")?.addEventListener("click", function(e) {
     }
 });
 
-// Khởi chạy ứng dụng
+// Khởi tạo ứng dụng khi tải trang
 if (chats.length > 0) loadChat(chats[0].id);
 else createNewChat();

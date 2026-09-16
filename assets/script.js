@@ -25,39 +25,45 @@ let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh - Sử dụng duy nhất Gemini 3.6 Flash qua REST API
+// 1. Phân tích hình ảnh - Tự động thử danh sách mô hình Flash khả dụng từ Google API
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const cleanBase64 = base64Data.split(',')[1] || base64Data;
     const maxAttempts = GEMINI_API_KEYS.length || 1;
+    
+    // Danh sách model chuẩn của Google AI Studio
+    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getNextGeminiKey();
         if (!apiKey) break;
 
-        try {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            { inline_data: { mime_type: mimeType, data: cleanBase64 } },
-                            { text: `Hãy đóng vai mắt thần thị giác: Trích xuất và mô tả toàn bộ chữ, giao diện, bảng biểu hoặc thông tin có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
-                        ]
-                    }]
-                })
-            });
+        for (const modelName of modelsToTry) {
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { inline_data: { mime_type: mimeType, data: cleanBase64 } },
+                                { text: `Hãy đóng vai mắt thần thị giác: Trích xuất và mô tả toàn bộ chữ, giao diện, bảng biểu hoặc thông tin có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
+                            ]
+                        }]
+                    })
+                });
 
-            if (response.ok) {
-                const data = await response.json();
-                const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (textResult) return textResult;
-            } else {
-                console.warn(`[Gemini 3.6 Flash] API Key index ${currentGeminiKeyIndex} trả về mã lỗi ${response.status}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (textResult) return textResult;
+                } else {
+                    const errDetail = await response.json().catch(() => ({}));
+                    console.warn(`[Gemini API] Model ${modelName} trả về mã ${response.status}:`, errDetail);
+                }
+            } catch (err) {
+                console.error(`[Gemini API] Lỗi kết nối ở Model ${modelName}:`, err);
             }
-        } catch (err) {
-            console.error(`[Gemini 3.6 Flash] Lỗi kết nối ở Key index ${currentGeminiKeyIndex}:`, err);
         }
     }
     return null;
@@ -322,7 +328,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// 5. Gửi tin nhắn & xử lý dữ liệu qua Gemini 3.6 Flash -> Groq API
+// 5. Gửi tin nhắn & truyền dữ liệu từ Gemini Vision sang Groq
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -361,13 +367,13 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Xử lý ảnh qua Gemini 3.6 Flash
+        // Phân tích hình ảnh bằng Gemini Flash
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini 3.6 Flash...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini Vision...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                apiContent = `[Thông tin trích xuất từ ảnh qua Gemini 3.6 Flash]:\n${visionResult}\n\n[Câu hỏi của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
+                apiContent = `[Thông tin chi tiết trích xuất từ ảnh]:\n${visionResult}\n\n[Câu hỏi của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
             } else {
                 apiContent = `[Hệ thống: Không thể đọc dữ liệu từ hình ảnh này].\n${prompt}`;
             }
@@ -418,7 +424,7 @@ window.sendMessage = async function() {
             })
         });
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        if (!res.ok) throw new Error(`Groq API Error HTTP ${res.status}: ${res.statusText}`);
 
         let fullReply = "";
         let displayReply = "";
@@ -467,7 +473,7 @@ window.sendMessage = async function() {
                             charQueue.push(...content.split(''));
                         }
                     } catch (e) {
-                        console.error("Lỗi parse dữ liệu SSE:", e);
+                        console.error("Lỗi parse SSE:", e);
                     }
                 }
             }
@@ -512,7 +518,7 @@ window.loadChat = function(id) {
     saveAndRender();
 };
 
-function showCopyToast(message = "📋 Đã sao chép liên kết vào khay nhớ tạm!") {
+function showCopyToast(message = "📋 Đã sao chép liên kết!") {
     const toast = document.getElementById("copyToast");
     if (!toast) return;
     toast.innerText = message;
@@ -535,6 +541,6 @@ document.getElementById("chatBox")?.addEventListener("click", function(e) {
     }
 });
 
-// Khởi tạo ứng dụng khi tải trang
+// Khởi tạo ứng dụng
 if (chats.length > 0) loadChat(chats[0].id);
 else createNewChat();

@@ -2,13 +2,14 @@
 import CONFIG from './config.js';
 import { GoogleGenAI } from "https://esm.run/@google/genai";
 
-// Lấy cấu hình và API Key đã giải mã từ config.js
+// Lấy cấu hình API Key từ config.js
 const GEMINI_API_KEYS = CONFIG.GEMINI_API_KEYS;
 const GROQ_API_KEY = CONFIG.GROQ_API_KEY;
 
 let currentGeminiKeyIndex = 0;
 
 function getNextGeminiKey() {
+    if (!GEMINI_API_KEYS || GEMINI_API_KEYS.length === 0) return null;
     const key = GEMINI_API_KEYS[currentGeminiKeyIndex];
     currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % GEMINI_API_KEYS.length;
     return key;
@@ -16,23 +17,25 @@ function getNextGeminiKey() {
 
 let chats = JSON.parse(localStorage.getItem("multi_ai_chats_v26")) || [];
 let currentChatId = null;
-let selectedModel = CONFIG.DEFAULT_MODEL;
+let selectedModel = CONFIG.DEFAULT_MODEL || "gpt_oss_120b";
 
-// Khởi tạo trạng thái file rỗng chuẩn
+// Trạng thái file đính kèm tạm thời
 let selectedFile = { base64: null, type: null, name: null, textContent: null };
 
 let isWebSearchEnabled = false;
-let currentEffort = CONFIG.DEFAULT_EFFORT;
-let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED;
+let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
+let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// Phân tích hình ảnh bằng Gemini
+// 1. Phân tích hình ảnh bằng Gemini API
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const cleanBase64 = base64Data.split(',')[1] || base64Data;
-    const modelsToTry = ["gemini-3.6-flash", "gemini-2.5-flash"];
-    const maxAttempts = GEMINI_API_KEYS.length;
+    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
+    const maxAttempts = GEMINI_API_KEYS.length || 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getNextGeminiKey();
+        if (!apiKey) break;
+
         const geminiAi = new GoogleGenAI({ apiKey: apiKey });
 
         for (const modelName of modelsToTry) {
@@ -41,19 +44,19 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
                     model: modelName,
                     contents: [
                         { inlineData: { data: cleanBase64, mimeType: mimeType } },
-                        `Hãy đóng vai trò mắt thần thị giác: Trích xuất toàn bộ dữ liệu, bảng biểu, con số, văn bản, biểu đồ hoặc chi tiết hình ảnh quan trọng nhất để phục vụ trực tiếp cho câu hỏi này: "${userQuery || 'Mô tả hình ảnh này'}"`
+                        `Hãy trích xuất và mô tả toàn bộ chi tiết, văn bản, giao diện hoặc bảng biểu trong hình ảnh này để trả lời cho yêu cầu: "${userQuery || 'ĐÂY LÀ GI'}"`
                     ]
                 });
                 return response.text;
             } catch (err) {
-                console.warn(`[Gemini API] Key index ${currentGeminiKeyIndex} hoặc model ${modelName} bị quá tải/lỗi:`, err);
+                console.warn(`[Gemini API] Key index ${currentGeminiKeyIndex} lỗi trên model ${modelName}:`, err);
             }
         }
     }
     return null;
 }
 
-// Xử lý các menu chọn Effort, Thinking, Search, Model
+// 2. Các hàm điều khiển Giao diện Toolbar & Dropdown
 window.toggleEffortDropdown = function(e) {
     e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
@@ -61,19 +64,19 @@ window.toggleEffortDropdown = function(e) {
     
     const menu = document.getElementById("effortDropdownMenu");
     const btn = document.getElementById("effortDropdownBtn");
-    menu.classList.toggle("active");
-    btn.classList.toggle("active");
+    menu?.classList.toggle("active");
+    btn?.classList.toggle("active");
 };
 
 window.selectEffort = function(value) {
     currentEffort = value;
     document.querySelectorAll("#effortDropdownMenu .model-option").forEach(item => {
-        const isTarget = item.getAttribute("data-value") === value;
-        item.classList.toggle("selected", isTarget);
+        item.classList.toggle("selected", item.getAttribute("data-value") === value);
     });
 
     const labels = { low: 'Low', medium: 'Medium', high: 'High', extra: 'Extra', max: 'Max' };
-    document.getElementById("effortBtnLabel").innerText = labels[value];
+    const labelEl = document.getElementById("effortBtnLabel");
+    if (labelEl) labelEl.innerText = labels[value] || value;
     
     document.getElementById("effortDropdownMenu")?.classList.remove("active");
     document.getElementById("effortDropdownBtn")?.classList.remove("active");
@@ -86,8 +89,9 @@ window.toggleThinking = function(enabled) {
 window.toggleWebSearch = function() {
     isWebSearchEnabled = !isWebSearchEnabled;
     const btn = document.getElementById("webSearchToggle");
-    btn.classList.toggle("active", isWebSearchEnabled);
-    document.getElementById("searchStatus").innerText = isWebSearchEnabled ? "Web: Bật" : "Web: Tắt";
+    btn?.classList.toggle("active", isWebSearchEnabled);
+    const status = document.getElementById("searchStatus");
+    if (status) status.innerText = isWebSearchEnabled ? "Web: Bật" : "Web: Tắt";
 };
 
 window.toggleModelDropdown = function(e) {
@@ -97,8 +101,8 @@ window.toggleModelDropdown = function(e) {
 
     const menu = document.getElementById("modelDropdownMenu");
     const btn = document.getElementById("modelDropdownBtn");
-    menu.classList.toggle("active");
-    btn.classList.toggle("active");
+    menu?.classList.toggle("active");
+    btn?.classList.toggle("active");
 };
 
 document.addEventListener('click', () => {
@@ -111,13 +115,15 @@ document.addEventListener('click', () => {
 
 window.selectModel = function(value, label) {
     selectedModel = value;
-    document.getElementById("currentModelLabel").innerText = label;
+    const modelLabel = document.getElementById("currentModelLabel");
+    if (modelLabel) modelLabel.innerText = label;
     document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
         opt.classList.toggle("selected", opt.getAttribute("data-value") === value);
     });
     handleModelChange(value);
 };
 
+// Search đệm bằng DuckDuckGo
 async function performWebSearch(query) {
     try {
         const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
@@ -129,8 +135,11 @@ async function performWebSearch(query) {
     } catch { return ""; }
 }
 
+// Custom Modal Dialog
 function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     const modalOverlay = document.getElementById("customModalOverlay");
+    if (!modalOverlay) return;
+
     document.getElementById("modalTitle").innerText = title;
     document.getElementById("modalDesc").innerText = desc;
     
@@ -158,22 +167,22 @@ function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     });
 }
 
-// Xử lý đính kèm tệp và xem ảnh/video
-window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu').classList.toggle('active'); };
-window.openInput = (id) => { document.getElementById(id).click(); document.getElementById('attachMenu').classList.remove('active'); };
+// 3. Quản lý File Đính kèm & Xóa bộ nhớ đệm
+window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu')?.classList.toggle('active'); };
+window.openInput = (id) => { document.getElementById(id)?.click(); document.getElementById('attachMenu')?.classList.remove('active'); };
 
 window.openMediaViewer = (src, type) => {
     const container = document.getElementById("viewerMediaContainer");
+    if (!container) return;
     container.innerHTML = type === 'image' ? `<img src="${src}" class="image-viewer-content">` : `<video src="${src}" class="image-viewer-content" controls autoplay></video>`;
-    document.getElementById("imageViewer").classList.add("active");
+    document.getElementById("imageViewer")?.classList.add("active");
 };
-window.closeImageViewer = () => document.getElementById("imageViewer").classList.remove("active");
+window.closeImageViewer = () => document.getElementById("imageViewer")?.classList.remove("active");
 
 window.handleFileSelect = function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Reset lại bộ nhớ file trước khi nhận file mới
     clearSelectedFile();
 
     selectedFile.name = file.name;
@@ -188,27 +197,26 @@ window.handleFileSelect = function(e) {
     const reader = new FileReader();
     reader.onload = (evt) => {
         selectedFile.base64 = evt.target.result;
-        document.getElementById("fileName").innerText = `📎 ${file.name}`;
-        document.getElementById("filePreview").classList.add("active");
+        const nameEl = document.getElementById("fileName");
+        if (nameEl) nameEl.innerText = `📎 ${file.name}`;
+        document.getElementById("filePreview")?.classList.add("active");
     };
     reader.readAsDataURL(file);
 };
 
-// Hàm dọn dẹp sạch sẽ dữ liệu file tạm
 window.clearSelectedFile = function() {
     selectedFile = { base64: null, type: null, name: null, textContent: null };
     ['imageInput', 'videoInput', 'fileInput'].forEach(id => {
         const input = document.getElementById(id);
         if (input) input.value = '';
     });
-    const preview = document.getElementById("filePreview");
-    if (preview) preview.classList.remove("active");
+    document.getElementById("filePreview")?.classList.remove("active");
 };
 
-// Xử lý Sidebar & Chat History
+// 4. Quản lý Sidebar & Lịch sử Chat
 window.toggleSidebar = () => {
-    document.getElementById("sidebar").classList.toggle("open");
-    document.getElementById("overlay").classList.toggle("active");
+    document.getElementById("sidebar")?.classList.toggle("open");
+    document.getElementById("overlay")?.classList.toggle("active");
 };
 
 window.promptNewChat = function() {
@@ -281,6 +289,8 @@ window.deleteChat = function(e, id) {
 
 function renderMessages(messages) {
     const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
+
     if (!messages || messages.length === 0) {
         chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy nhập câu hỏi hoặc tải ảnh/bảng biểu lên để bắt đầu...</div></div>`;
         return;
@@ -295,7 +305,7 @@ function renderMessages(messages) {
             }
             return `<div class="message-wrapper user"><div class="message user-msg">${media}${m.text ? m.text.replace(/</g, "&lt;").replace(/\n/g, '<br>') : ''}</div></div>`;
         } else {
-            return `<div class="message-wrapper ai"><div class="message ai-msg">${marked.parse(cleanResponseText(m.text || ''))}</div></div>`;
+            return `<div class="message-wrapper ai"><div class="message ai-msg">${window.marked ? marked.parse(cleanResponseText(m.text || '')) : cleanResponseText(m.text || '')}</div></div>`;
         }
     }).join('');
     chatBox.scrollTop = chatBox.scrollHeight;
@@ -305,7 +315,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// Gửi tin nhắn và xử lý phân tích dữ liệu
+// 5. Gửi Tin nhắn và Xử lý Luồng dữ liệu Vision -> Groq API
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -316,7 +326,7 @@ window.sendMessage = async function() {
     const active = chats.find(c => c.id === currentChatId);
     active.model = selectedModel;
 
-    // Lấy bản sao của file hiện tại và làm sạch ngay bộ nhớ tạm
+    // Trích xuất file hiện tại và DỌN SẠCH DỮ LIỆU TẠM NGAY LẬP TỨC
     const currentFile = selectedFile.base64 ? { ...selectedFile } : null;
     clearSelectedFile();
 
@@ -345,30 +355,31 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Xử lý nếu LƯỢT CHAT NÀY có ảnh mới gửi lên
+        // Xử lý đọc hình ảnh qua Gemini Mắt thần
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh mới...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                apiContent = `[Thông tin trích xuất từ hình ảnh hiện tại]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
+                apiContent = `[Nội dung chi tiết trích xuất từ hình ảnh]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
             } else {
-                apiContent = `[Hệ thống: Không thể phân tích hình ảnh này].\n${prompt}`;
+                apiContent = `[Hệ thống: Không thể đọc dữ liệu hình ảnh].\n${prompt}`;
             }
         }
 
         if (currentFile && currentFile.textContent) {
-            apiContent += `\n\n[Nội dung tệp dữ liệu ${currentFile.name}]:\n${currentFile.textContent}\n\nHãy tổng hợp, phân tích các số liệu hoặc bảng thông tin trên.`;
+            apiContent += `\n\n[Nội dung tệp ${currentFile.name}]:\n${currentFile.textContent}`;
         }
 
         if (isWebSearchEnabled && prompt) {
             const searchRes = await performWebSearch(prompt);
-            if (searchRes) apiContent = `${searchRes}\n\n[Dựa vào thông tin trên, hãy trả lời]: ${prompt}`;
+            if (searchRes) apiContent = `${searchRes}\n\n[Yêu cầu]: ${prompt}`;
         }
 
+        // GÁN NỘI DUNG ĐÃ TỔNG HỢP (GỒM KẾT QUẢ ĐỌC ẢNH) VÀO TIN NHẮN
         userMessage.apiText = apiContent;
 
-        // Tạo payload chuẩn gửi cho Groq API
+        // Tạo payload gửi cho Groq API (Sử dụng apiText đã có nội dung ảnh)
         const payload = active.messages.map(m => ({ 
             role: m.role === 'user' ? 'user' : 'assistant', 
             content: m.apiText || m.text 
@@ -417,7 +428,7 @@ window.sendMessage = async function() {
                 for (let i = 0; i < chunkSize && charQueue.length > 0; i++) {
                     displayReply += charQueue.shift();
                 }
-                targetMsgEl.innerHTML = marked.parse(cleanResponseText(displayReply));
+                targetMsgEl.innerHTML = window.marked ? marked.parse(cleanResponseText(displayReply)) : cleanResponseText(displayReply);
                 chatBox.scrollTop = chatBox.scrollHeight;
             } else if (isStreamingFinished) {
                 clearInterval(renderInterval);
@@ -452,7 +463,7 @@ window.sendMessage = async function() {
                             charQueue.push(...content.split(''));
                         }
                     } catch (e) {
-                        console.error("Lỗi parse SSE:", e);
+                        console.error("Lỗi parse dữ liệu SSE:", e);
                     }
                 }
             }
@@ -470,12 +481,15 @@ window.sendMessage = async function() {
 
 function saveAndRender() {
     localStorage.setItem("multi_ai_chats_v26", JSON.stringify(chats));
-    document.getElementById("historyList").innerHTML = chats.map(c => `
-        <div class="history-item ${c.id === currentChatId ? 'active' : ''}" onclick="loadChat(${c.id})">
-            <span class="history-title">${c.title.replace(/</g, "&lt;")}</span>
-            <button class="delete-chat-btn" onclick="deleteChat(event, ${c.id})">×</button>
-        </div>
-    `).join('');
+    const historyList = document.getElementById("historyList");
+    if (historyList) {
+        historyList.innerHTML = chats.map(c => `
+            <div class="history-item ${c.id === currentChatId ? 'active' : ''}" onclick="loadChat(${c.id})">
+                <span class="history-title">${c.title.replace(/</g, "&lt;")}</span>
+                <button class="delete-chat-btn" onclick="deleteChat(event, ${c.id})">×</button>
+            </div>
+        `).join('');
+    }
 }
 
 window.loadChat = function(id) {
@@ -484,7 +498,8 @@ window.loadChat = function(id) {
     if (active) {
         selectedModel = active.model || 'gpt_oss_120b';
         const labels = { 'gpt_oss_120b': 'GPT OSS 120B', 'gpt_oss_20b': 'GPT OSS 20B' };
-        document.getElementById("currentModelLabel").innerText = labels[selectedModel];
+        const labelEl = document.getElementById("currentModelLabel");
+        if (labelEl) labelEl.innerText = labels[selectedModel] || selectedModel;
         document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
             opt.classList.toggle("selected", opt.getAttribute("data-value") === selectedModel);
         });
@@ -501,7 +516,7 @@ function showCopyToast(message = "📋 Đã sao chép liên kết vào khay nh�
     setTimeout(() => toast.classList.remove("show"), 2000);
 }
 
-document.getElementById("chatBox").addEventListener("click", function(e) {
+document.getElementById("chatBox")?.addEventListener("click", function(e) {
     const link = e.target.closest("a");
     if (link) {
         e.preventDefault();

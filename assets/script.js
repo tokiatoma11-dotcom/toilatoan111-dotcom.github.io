@@ -7,7 +7,7 @@ const GROQ_API_KEY = CONFIG.GROQ_API_KEY;
 
 let currentGeminiKeyIndex = 0;
 
-// Hàm lấy Key tiếp theo (xoay vòng 11 Key)
+// Hàm lấy Key tiếp theo (xoay vòng Key)
 function getNextGeminiKey() {
     if (!GEMINI_API_KEYS || GEMINI_API_KEYS.length === 0) return null;
     const key = GEMINI_API_KEYS[currentGeminiKeyIndex];
@@ -26,11 +26,10 @@ let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh bằng Gemini 3.6 Flash dành riêng cho Web Frontend
+// 1. Phân tích hình ảnh bằng Gemini 3.6 Flash -> Trả về cấu trúc JSON và Text cho GPT
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     if (!base64Data) return null;
 
-    // Làm sạch Base64 trên trình duyệt
     const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
     const validMimeType = mimeType || "image/jpeg";
 
@@ -42,6 +41,17 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const maxAttempts = GEMINI_API_KEYS.length;
     const modelName = "gemini-3.6-flash";
 
+    // Prompt yêu cầu Gemini trả về cả cấu trúc JSON và Text mô tả
+    const structuredPrompt = `${userQuery || "Hãy phân tích hình ảnh này."}
+    
+YÊU CẦU ĐẶC BIỆT: Hãy trả về kết quả dưới định dạng JSON chính xác bọc trong thẻ markdown ```json ... ``` theo cấu trúc sau:
+{
+  "text_description": "Mô tả chi tiết bằng văn bản ở đây...",
+  "json_data": {
+    // Trích xuất toàn bộ dữ liệu có cấu trúc từ hình ảnh (key-value) vào đây
+  }
+}`;
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getNextGeminiKey();
         if (!apiKey) continue;
@@ -49,7 +59,6 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-            // Payload chuẩn hóa cho Gemini 3.6 (Đã loại bỏ temperature/top_p)
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -64,7 +73,7 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
                                 }
                             },
                             {
-                                text: userQuery || "Hãy trích xuất và mô tả chi tiết toàn bộ nội dung trong hình ảnh này."
+                                text: structuredPrompt
                             }
                         ]
                     }],
@@ -79,8 +88,9 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
             const data = await response.json();
 
             if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                console.log(`[Gemini Vision] Phân tích thành công bằng model ${modelName} (Key #${currentGeminiKeyIndex})`);
-                return data.candidates[0].content.parts[0].text;
+                const rawText = data.candidates[0].content.parts[0].text;
+                console.log(`[Gemini Vision] Phân tích thành công bằng model ${modelName}`);
+                return parseGeminiOutput(rawText);
             } else {
                 console.warn(`[Gemini Vision] Key #${currentGeminiKeyIndex} lỗi (${response.status}):`, data.error?.message || data);
                 if (response.status === 400) break;
@@ -91,6 +101,35 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     }
 
     return null;
+}
+
+// Hàm phụ trợ tách JSON và Text từ phản hồi của Gemini
+function parseGeminiOutput(rawText) {
+    let textDescription = rawText;
+    let jsonData = {};
+
+    try {
+        const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/);
+        if (jsonMatch && jsonMatch[1]) {
+            jsonData = JSON.parse(jsonMatch[1]);
+            textDescription = rawText.replace(jsonMatch[0], "").trim();
+        } else {
+            const firstBrace = rawText.indexOf('{');
+            const lastBrace = rawText.lastIndexOf('}');
+            if (firstBrace !== -1 && lastBrace !== -1) {
+                jsonData = JSON.parse(rawText.substring(firstBrace, lastBrace + 1));
+                textDescription = rawText.replace(rawText.substring(firstBrace, lastBrace + 1), "").trim();
+            }
+        }
+    } catch (e) {
+        console.error("Lỗi parse JSON từ Gemini output:", e);
+        jsonData = { raw_output: rawText };
+    }
+
+    return {
+        text: textDescription,
+        json: jsonData
+    };
 }
 
 // 2. Xử lý Dropdown và các tính năng phụ trợ
@@ -350,7 +389,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// 5. Gửi Tin Nhắn & Stream Phản Hồi
+// 5. Gửi Tin Nhắn & Stream Phản Hồi (Tích hợp Gemini Vision trích xuất Text + JSON sang Groq)
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -389,15 +428,20 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Xử lý ảnh với Gemini 3.6 Flash
+        // Nếu có ảnh, gọi Gemini 3.6 Flash trích xuất đồng thời JSON và Text mô tả
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh qua Gemini 3.6 Flash...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh (JSON & Text) qua Gemini...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                apiContent = `[Thông tin chi tiết trích xuất từ ảnh]:\n${visionResult}\n\n[Yêu cầu của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
+                // Đóng gói đầy đủ phần text mô tả và cấu trúc JSON để gửi sang các model GPT qua Groq
+                apiContent = `[Dữ liệu phân tích từ hình ảnh]:
+- Mô tả văn bản: ${visionResult.text}
+- Dữ liệu cấu trúc (JSON): ${JSON.stringify(visionResult.json, null, 2)}
+
+[Yêu cầu của người dùng]: ${prompt || "Hãy xử lý dựa trên dữ liệu hình ảnh trên."}`;
             } else {
-                apiContent = `[Không thể đọc hình ảnh này do lỗi hệ thống/API Key].\n${prompt}`;
+                apiContent = `[Không thể đọc hình ảnh này].\n${prompt}`;
             }
         }
 

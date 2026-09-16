@@ -25,13 +25,17 @@ let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh - Tự động thử danh sách mô hình Flash khả dụng từ Google API
+// 1. Phân tích hình ảnh: Thử 3.6 flash -> 2.5 flash -> 1.5 flash
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const cleanBase64 = base64Data.split(',')[1] || base64Data;
     const maxAttempts = GEMINI_API_KEYS.length || 1;
     
-    // Danh sách model chuẩn của Google AI Studio
-    const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash"];
+    // Danh sách model ưu tiên đúng theo thứ tự: 3.6-flash -> 2.5-flash -> 1.5-flash
+    const modelsToTry = [
+        "gemini-3.6-flash",
+        "gemini-2.5-flash", 
+        "gemini-1.5-flash"
+    ];
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const apiKey = getNextGeminiKey();
@@ -56,13 +60,15 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
                 if (response.ok) {
                     const data = await response.json();
                     const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (textResult) return textResult;
+                    if (textResult) {
+                        console.log(`[Gemini Vision] Thành công với model: ${modelName}`);
+                        return textResult;
+                    }
                 } else {
-                    const errDetail = await response.json().catch(() => ({}));
-                    console.warn(`[Gemini API] Model ${modelName} trả về mã ${response.status}:`, errDetail);
+                    console.warn(`[Gemini Vision] Model ${modelName} thất bại (mã ${response.status}), đang chuyển sang model tiếp theo...`);
                 }
             } catch (err) {
-                console.error(`[Gemini API] Lỗi kết nối ở Model ${modelName}:`, err);
+                console.error(`[Gemini Vision] Lỗi gọi model ${modelName}:`, err);
             }
         }
     }
@@ -367,7 +373,7 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Phân tích hình ảnh bằng Gemini Flash
+        // Phân tích hình ảnh
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
             targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini Vision...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
@@ -544,3 +550,4 @@ document.getElementById("chatBox")?.addEventListener("click", function(e) {
 // Khởi tạo ứng dụng
 if (chats.length > 0) loadChat(chats[0].id);
 else createNewChat();
+

@@ -17,9 +17,11 @@ function getNextGeminiKey() {
 let chats = JSON.parse(localStorage.getItem("multi_ai_chats_v26")) || [];
 let currentChatId = null;
 let selectedModel = CONFIG.DEFAULT_MODEL;
-let selectedFile = { base64: null, type: null, name: null, textContent: null };
-let isWebSearchEnabled = false;
 
+// Khởi tạo trạng thái file rỗng chuẩn
+let selectedFile = { base64: null, type: null, name: null, textContent: null };
+
+let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT;
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED;
 
@@ -170,13 +172,19 @@ window.closeImageViewer = () => document.getElementById("imageViewer").classList
 window.handleFileSelect = function(e) {
     const file = e.target.files[0];
     if (!file) return;
+
+    // Reset lại bộ nhớ file trước khi nhận file mới
+    clearSelectedFile();
+
     selectedFile.name = file.name;
     selectedFile.type = file.type;
+
     if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.csv')) {
         const reader = new FileReader();
         reader.onload = (evt) => selectedFile.textContent = evt.target.result;
         reader.readAsText(file);
     }
+
     const reader = new FileReader();
     reader.onload = (evt) => {
         selectedFile.base64 = evt.target.result;
@@ -186,10 +194,15 @@ window.handleFileSelect = function(e) {
     reader.readAsDataURL(file);
 };
 
+// Hàm dọn dẹp sạch sẽ dữ liệu file tạm
 window.clearSelectedFile = function() {
     selectedFile = { base64: null, type: null, name: null, textContent: null };
-    ['imageInput', 'videoInput', 'fileInput'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById("filePreview").classList.remove("active");
+    ['imageInput', 'videoInput', 'fileInput'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = '';
+    });
+    const preview = document.getElementById("filePreview");
+    if (preview) preview.classList.remove("active");
 };
 
 // Xử lý Sidebar & Chat History
@@ -276,8 +289,8 @@ function renderMessages(messages) {
         if (m.role === 'user') {
             let media = '';
             if (m.file) {
-                if (m.file.type.startsWith('image/')) media = `<img src="${m.file.base64}" class="chat-img" onclick="openMediaViewer('${m.file.base64}', 'image')">`;
-                else if (m.file.type.startsWith('video/')) media = `<video src="${m.file.base64}" class="chat-video" onclick="openMediaViewer('${m.file.base64}', 'video')"></video>`;
+                if (m.file.type && m.file.type.startsWith('image/')) media = `<img src="${m.file.base64}" class="chat-img" onclick="openMediaViewer('${m.file.base64}', 'image')">`;
+                else if (m.file.type && m.file.type.startsWith('video/')) media = `<video src="${m.file.base64}" class="chat-video" onclick="openMediaViewer('${m.file.base64}', 'video')"></video>`;
                 else media = `<div class="file-card">📄 ${m.file.name}</div>`;
             }
             return `<div class="message-wrapper user"><div class="message user-msg">${media}${m.text ? m.text.replace(/</g, "&lt;").replace(/\n/g, '<br>') : ''}</div></div>`;
@@ -292,22 +305,33 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// Hàm gửi tin nhắn chính (Gọi Groq API & Gemini Vision)
+// Gửi tin nhắn và xử lý phân tích dữ liệu
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
+
     if (!prompt && !selectedFile.base64) return;
 
     if (!currentChatId) createNewChat();
     const active = chats.find(c => c.id === currentChatId);
     active.model = selectedModel;
 
-    const file = selectedFile.base64 ? { ...selectedFile } : null;
+    // Lấy bản sao của file hiện tại và làm sạch ngay bộ nhớ tạm
+    const currentFile = selectedFile.base64 ? { ...selectedFile } : null;
+    clearSelectedFile();
 
-    active.messages.push({ role: "user", text: prompt || `Đã gửi tệp: ${file.name}`, file });
-    if (active.messages.length === 1) active.title = prompt ? prompt.substring(0, 20) + "..." : file.name;
+    const userMessage = { 
+        role: "user", 
+        text: prompt || `Đã gửi tệp: ${currentFile.name}`, 
+        file: currentFile 
+    };
 
-    tx.value = ""; clearSelectedFile();
+    active.messages.push(userMessage);
+    if (active.messages.length === 1) {
+        active.title = prompt ? prompt.substring(0, 20) + "..." : currentFile.name;
+    }
+
+    tx.value = "";
     renderMessages(active.messages);
     saveAndRender();
 
@@ -321,19 +345,20 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        if (file && file.type.startsWith('image/')) {
-            targetMsgEl.innerText = "đang phân tích hình ảnh...";
-            const visionResult = await processVisionWithGemini(file.base64, file.type, prompt);
+        // Xử lý nếu LƯỢT CHAT NÀY có ảnh mới gửi lên
+        if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
+            targetMsgEl.innerText = "Đang phân tích hình ảnh mới...";
+            const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                apiContent = `[Thông tin trích xuất từ hình ảnh bằng Gemini]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
+                apiContent = `[Thông tin trích xuất từ hình ảnh hiện tại]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
             } else {
-                apiContent = `[Hệ thống: Không thể trích xuất hình ảnh ngầm, hãy phân tích thông thường].\n${prompt}`;
+                apiContent = `[Hệ thống: Không thể phân tích hình ảnh này].\n${prompt}`;
             }
         }
 
-        if (file?.textContent) {
-            apiContent += `\n\n[Nội dung tệp dữ liệu ${file.name}]:\n${file.textContent}\n\nHãy tổng hợp, phân tích các số liệu hoặc bảng thông tin trên.`;
+        if (currentFile && currentFile.textContent) {
+            apiContent += `\n\n[Nội dung tệp dữ liệu ${currentFile.name}]:\n${currentFile.textContent}\n\nHãy tổng hợp, phân tích các số liệu hoặc bảng thông tin trên.`;
         }
 
         if (isWebSearchEnabled && prompt) {
@@ -341,9 +366,13 @@ window.sendMessage = async function() {
             if (searchRes) apiContent = `${searchRes}\n\n[Dựa vào thông tin trên, hãy trả lời]: ${prompt}`;
         }
 
-        active.messages[active.messages.length - 1].apiText = apiContent;
+        userMessage.apiText = apiContent;
 
-        const payload = active.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.apiText || m.text }));
+        // Tạo payload chuẩn gửi cho Groq API
+        const payload = active.messages.map(m => ({ 
+            role: m.role === 'user' ? 'user' : 'assistant', 
+            content: m.apiText || m.text 
+        }));
         
         let modelName = selectedModel === "gpt_oss_20b" ? "openai/gpt-oss-20b" : "openai/gpt-oss-120b";
 
@@ -359,7 +388,10 @@ window.sendMessage = async function() {
 
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+            headers: { 
+                "Authorization": `Bearer ${GROQ_API_KEY}`, 
+                "Content-Type": "application/json" 
+            },
             body: JSON.stringify({
                 model: modelName,
                 messages: payload,

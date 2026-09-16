@@ -76,12 +76,7 @@ YÊU CẦU ĐẶC BIỆT: Hãy trả về kết quả dưới định dạng JSO
                                 text: structuredPrompt
                             }
                         ]
-                    }],
-                    config: {
-                        thinkingConfig: {
-                            thinkingLevel: "medium"
-                        }
-                    }
+                    }]
                 })
             });
 
@@ -389,7 +384,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// 5. Gửi Tin Nhắn & Stream Phản Hồi (Tích hợp Gemini Vision trích xuất Text + JSON sang Groq)
+// 5. Gửi Tin Nhắn & Stream Phản Hồi
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -434,7 +429,6 @@ window.sendMessage = async function() {
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
-                // Đóng gói đầy đủ phần text mô tả và cấu trúc JSON để gửi sang các model GPT qua Groq
                 apiContent = `[Dữ liệu phân tích từ hình ảnh]:
 - Mô tả văn bản: ${visionResult.text}
 - Dữ liệu cấu trúc (JSON): ${JSON.stringify(visionResult.json, null, 2)}

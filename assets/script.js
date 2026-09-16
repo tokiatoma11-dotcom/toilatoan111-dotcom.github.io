@@ -41,7 +41,6 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     const maxAttempts = GEMINI_API_KEYS.length;
     const modelName = "gemini-3.6-flash";
 
-    // Prompt yêu cầu Gemini trả về cả cấu trúc JSON và Text mô tả
     const structuredPrompt = `${userQuery || "Hãy phân tích hình ảnh này."}
     
 YÊU CẦU ĐẶC BIỆT: Hãy trả về kết quả dưới định dạng JSON chính xác bọc trong thẻ markdown ```json ... ``` theo cấu trúc sau:
@@ -84,10 +83,8 @@ YÊU CẦU ĐẶC BIỆT: Hãy trả về kết quả dưới định dạng JSO
 
             if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
                 const rawText = data.candidates[0].content.parts[0].text;
-                console.log(`[Gemini Vision] Phân tích thành công bằng model ${modelName}`);
                 return parseGeminiOutput(rawText);
             } else {
-                console.warn(`[Gemini Vision] Key #${currentGeminiKeyIndex} lỗi (${response.status}):`, data.error?.message || data);
                 if (response.status === 400) break;
             }
         } catch (err) {
@@ -98,7 +95,6 @@ YÊU CẦU ĐẶC BIỆT: Hãy trả về kết quả dưới định dạng JSO
     return null;
 }
 
-// Hàm phụ trợ tách JSON và Text từ phản hồi của Gemini
 function parseGeminiOutput(rawText) {
     let textDescription = rawText;
     let jsonData = {};
@@ -117,7 +113,6 @@ function parseGeminiOutput(rawText) {
             }
         }
     } catch (e) {
-        console.error("Lỗi parse JSON từ Gemini output:", e);
         jsonData = { raw_output: rawText };
     }
 
@@ -127,9 +122,9 @@ function parseGeminiOutput(rawText) {
     };
 }
 
-// 2. Xử lý Dropdown và các tính năng phụ trợ
+// 2. Gắn sự kiện và định nghĩa các hàm Global để HTML gọi trực tiếp an toàn
 window.toggleEffortDropdown = function(e) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
     document.getElementById("modelDropdownBtn")?.classList.remove("active");
     
@@ -164,7 +159,7 @@ window.toggleWebSearch = function() {
 };
 
 window.toggleModelDropdown = function(e) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     document.getElementById("effortDropdownMenu")?.classList.remove("active");
     document.getElementById("effortDropdownBtn")?.classList.remove("active");
 
@@ -174,6 +169,7 @@ window.toggleModelDropdown = function(e) {
     btn?.classList.toggle("active");
 };
 
+// Đóng toàn bộ dropdown khi click ra ngoài
 document.addEventListener('click', () => {
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
     document.getElementById("modelDropdownBtn")?.classList.remove("active");
@@ -192,7 +188,6 @@ window.selectModel = function(value, label) {
     handleModelChange(value);
 };
 
-// Tìm kiếm Web cơ bản
 async function performWebSearch(query) {
     try {
         const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
@@ -204,7 +199,6 @@ async function performWebSearch(query) {
     } catch { return ""; }
 }
 
-// Custom Modal
 function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     const modalOverlay = document.getElementById("customModalOverlay");
     if (!modalOverlay) return;
@@ -237,8 +231,15 @@ function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
 }
 
 // 3. Quản lý Tệp Đính Kèm
-window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu')?.classList.toggle('active'); };
-window.openInput = (id) => { document.getElementById(id)?.click(); document.getElementById('attachMenu')?.classList.remove('active'); };
+window.toggleAttachmentMenu = (e) => { 
+    if (e) e.stopPropagation(); 
+    document.getElementById('attachMenu')?.classList.toggle('active'); 
+};
+
+window.openInput = (id) => { 
+    document.getElementById(id)?.click(); 
+    document.getElementById('attachMenu')?.classList.remove('active'); 
+};
 
 window.openMediaViewer = (src, type) => {
     const container = document.getElementById("viewerMediaContainer");
@@ -246,13 +247,14 @@ window.openMediaViewer = (src, type) => {
     container.innerHTML = type === 'image' ? `<img src="${src}" class="image-viewer-content">` : `<video src="${src}" class="image-viewer-content" controls autoplay></video>`;
     document.getElementById("imageViewer")?.classList.add("active");
 };
+
 window.closeImageViewer = () => document.getElementById("imageViewer")?.classList.remove("active");
 
 window.handleFileSelect = function(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    clearSelectedFile();
+    window.clearSelectedFile();
 
     selectedFile.name = file.name;
     selectedFile.type = file.type;
@@ -282,7 +284,7 @@ window.clearSelectedFile = function() {
     document.getElementById("filePreview")?.classList.remove("active");
 };
 
-// 4. Quản lý Quá trình Chat & Sidebar
+// 4. Quản lý Sidebar & Chat
 window.toggleSidebar = () => {
     document.getElementById("sidebar")?.classList.toggle("open");
     document.getElementById("overlay")?.classList.toggle("active");
@@ -296,11 +298,11 @@ window.promptNewChat = function() {
             "Bạn muốn lưu cuộc trò chuyện hiện tại và bắt đầu đoạn chat mới chứ?",
             "Tạo mới",
             "Hủy",
-            () => createNewChat(),
+            () => window.createNewChat(),
             () => {}
         );
     } else {
-        createNewChat();
+        window.createNewChat();
     }
 };
 
@@ -320,7 +322,7 @@ window.handleModelChange = function(newModel) {
             "Tạo chat mới",
             "Giữ đoạn chat",
             () => {
-                createNewChat();
+                window.createNewChat();
                 selectedModel = newModel;
                 chats[0].model = newModel;
                 saveAndRender();
@@ -337,7 +339,7 @@ window.handleModelChange = function(newModel) {
 };
 
 window.deleteChat = function(e, id) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     showCustomModal(
         "Xóa cuộc trò chuyện",
         "Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?",
@@ -346,8 +348,8 @@ window.deleteChat = function(e, id) {
         () => {
             chats = chats.filter(c => c.id !== id);
             if (currentChatId === id) {
-                if (chats.length > 0) loadChat(chats[0].id);
-                else createNewChat();
+                if (chats.length > 0) window.loadChat(chats[0].id);
+                else window.createNewChat();
             } else {
                 saveAndRender();
             }
@@ -387,16 +389,19 @@ function cleanResponseText(text) {
 // 5. Gửi Tin Nhắn & Stream Phản Hồi
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
+    if (!tx) return;
     const prompt = tx.value.trim();
 
     if (!prompt && !selectedFile.base64) return;
 
-    if (!currentChatId) createNewChat();
+    if (!currentChatId) window.createNewChat();
     const active = chats.find(c => c.id === currentChatId);
+    if (!active) return;
+
     active.model = selectedModel;
 
     const currentFile = selectedFile.base64 ? { ...selectedFile } : null;
-    clearSelectedFile();
+    window.clearSelectedFile();
 
     const userMessage = { 
         role: "user", 
@@ -406,7 +411,7 @@ window.sendMessage = async function() {
 
     active.messages.push(userMessage);
     if (active.messages.length === 1) {
-        active.title = prompt ? prompt.substring(0, 20) + "..." : currentFile.name;
+        active.title = prompt ? prompt.substring(0, 20) + "..." : (currentFile ? currentFile.name : "Đoạn chat");
     }
 
     tx.value = "";
@@ -423,7 +428,6 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Nếu có ảnh, gọi Gemini 3.6 Flash trích xuất đồng thời JSON và Text mô tả
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
             targetMsgEl.innerText = "Đang phân tích hình ảnh (JSON & Text) qua Gemini...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
@@ -555,7 +559,7 @@ function saveAndRender() {
     if (historyList) {
         historyList.innerHTML = chats.map(c => `
             <div class="history-item ${c.id === currentChatId ? 'active' : ''}" onclick="loadChat(${c.id})">
-                <span class="history-title">${c.title.replace(/</g, "&lt;")}</span>
+                <span class="history-title">${(c.title || 'Cuộc trò chuyện').replace(/</g, "&lt;")}</span>
                 <button class="delete-chat-btn" onclick="deleteChat(event, ${c.id})">×</button>
             </div>
         `).join('');
@@ -601,6 +605,20 @@ document.getElementById("chatBox")?.addEventListener("click", function(e) {
     }
 });
 
-// Khởi tạo trạng thái ban đầu
-if (chats.length > 0) loadChat(chats[0].id);
-else createNewChat();
+// Khởi chạy khi DOM sẵn sàng để đảm bảo mọi nút bấm đều ăn lệnh trực tiếp
+document.addEventListener("DOMContentLoaded", () => {
+    if (chats.length > 0) {
+        window.loadChat(chats[0].id);
+    } else {
+        window.createNewChat();
+    }
+});
+
+// Trường hợp script tải sau khi DOMContentLoaded đã chạy xong
+if (document.readyState === "complete" || document.readyState === "interactive") {
+    if (chats.length > 0 && !currentChatId) {
+        window.loadChat(chats[0].id);
+    } else if (chats.length === 0) {
+        window.createNewChat();
+    }
+}

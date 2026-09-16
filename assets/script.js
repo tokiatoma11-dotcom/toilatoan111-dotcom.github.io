@@ -1,12 +1,13 @@
 // assets/script.js
 import CONFIG from './config.js';
 
-// Cấu hình API Key
+// Khởi tạo các biến toàn cục
 const GEMINI_API_KEYS = CONFIG.GEMINI_API_KEYS || [];
 const GROQ_API_KEY = CONFIG.GROQ_API_KEY;
 
 let currentGeminiKeyIndex = 0;
 
+// Hàm lấy Key tiếp theo (xoay vòng 11 Key)
 function getNextGeminiKey() {
     if (!GEMINI_API_KEYS || GEMINI_API_KEYS.length === 0) return null;
     const key = GEMINI_API_KEYS[currentGeminiKeyIndex];
@@ -25,58 +26,74 @@ let isWebSearchEnabled = false;
 let currentEffort = CONFIG.DEFAULT_EFFORT || "medium";
 let isThinkingEnabled = CONFIG.IS_THINKING_ENABLED !== undefined ? CONFIG.IS_THINKING_ENABLED : true;
 
-// 1. Phân tích hình ảnh: Sử dụng duy nhất Gemini 3.6 Flash với cấu trúc API mới
+// 1. Phân tích hình ảnh bằng Gemini 3.6 Flash dành riêng cho Web Frontend
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
-    const cleanBase64 = base64Data.split(',')[1] || base64Data;
-    const apiKey = getNextGeminiKey();
-    if (!apiKey) {
-        console.error("[Gemini Vision] Không tìm thấy Gemini API Key trong config.js");
+    if (!base64Data) return null;
+
+    // Làm sạch Base64 trên trình duyệt
+    const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+    const validMimeType = mimeType || "image/jpeg";
+
+    if (!GEMINI_API_KEYS || GEMINI_API_KEYS.length === 0) {
+        console.error("[Gemini Vision] Không tìm thấy API Key!");
         return null;
     }
 
-    // Chỉ sử dụng duy nhất model Gemini 3.6 Flash
+    const maxAttempts = GEMINI_API_KEYS.length;
     const modelName = "gemini-3.6-flash";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    role: "user",
-                    parts: [
-                        { inline_data: { mime_type: mimeType, data: cleanBase64 } },
-                        { text: `Hãy trích xuất và mô tả chi tiết toàn bộ chữ, hình ảnh, bảng biểu hoặc dữ liệu có trong ảnh để phục vụ cho câu hỏi: "${userQuery || 'Mô tả hình ảnh này'}"` }
-                    ]
-                }],
-                config: {
-                    thinkingConfig: {
-                        thinkingLevel: "medium"
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const apiKey = getNextGeminiKey();
+        if (!apiKey) continue;
+
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+            // Payload chuẩn hóa cho Gemini 3.6 (Đã loại bỏ temperature/top_p)
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            {
+                                inlineData: {
+                                    mimeType: validMimeType,
+                                    data: cleanBase64
+                                }
+                            },
+                            {
+                                text: userQuery || "Hãy trích xuất và mô tả chi tiết toàn bộ nội dung trong hình ảnh này."
+                            }
+                        ]
+                    }],
+                    config: {
+                        thinkingConfig: {
+                            thinkingLevel: "medium"
+                        }
                     }
-                }
-            })
-        });
+                })
+            });
 
-        if (response.ok) {
             const data = await response.json();
-            const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (textResult) {
-                console.log(`[Gemini Vision] Phân tích thành công bằng model: ${modelName}`);
-                return textResult;
+
+            if (response.ok && data.candidates?.[0]?.content?.parts?.[0]?.text) {
+                console.log(`[Gemini Vision] Phân tích thành công bằng model ${modelName} (Key #${currentGeminiKeyIndex})`);
+                return data.candidates[0].content.parts[0].text;
+            } else {
+                console.warn(`[Gemini Vision] Key #${currentGeminiKeyIndex} lỗi (${response.status}):`, data.error?.message || data);
+                if (response.status === 400) break;
             }
-        } else {
-            const errJson = await response.json().catch(() => ({}));
-            console.error(`[Gemini Vision] Model ${modelName} báo lỗi (${response.status}):`, errJson);
+        } catch (err) {
+            console.error(`[Gemini Vision] Lỗi kết nối mạng:`, err);
         }
-    } catch (err) {
-        console.error(`[Gemini Vision] Lỗi kết nối tới model ${modelName}:`, err);
     }
 
     return null;
 }
 
-// 2. Điều khiển Dropdown & Toggle
+// 2. Xử lý Dropdown và các tính năng phụ trợ
 window.toggleEffortDropdown = function(e) {
     e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
@@ -102,9 +119,7 @@ window.selectEffort = function(value) {
     document.getElementById("effortDropdownBtn")?.classList.remove("active");
 };
 
-window.toggleThinking = function(enabled) {
-    isThinkingEnabled = enabled;
-};
+window.toggleThinking = function(enabled) { isThinkingEnabled = enabled; };
 
 window.toggleWebSearch = function() {
     isWebSearchEnabled = !isWebSearchEnabled;
@@ -155,7 +170,7 @@ async function performWebSearch(query) {
     } catch { return ""; }
 }
 
-// Modal thông báo
+// Custom Modal
 function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     const modalOverlay = document.getElementById("customModalOverlay");
     if (!modalOverlay) return;
@@ -187,7 +202,7 @@ function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     });
 }
 
-// 3. Quản lý Tệp Tải Lên
+// 3. Quản lý Tệp Đính Kèm
 window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu')?.classList.toggle('active'); };
 window.openInput = (id) => { document.getElementById(id)?.click(); document.getElementById('attachMenu')?.classList.remove('active'); };
 
@@ -233,7 +248,7 @@ window.clearSelectedFile = function() {
     document.getElementById("filePreview")?.classList.remove("active");
 };
 
-// 4. Quản lý Chat & Sidebar
+// 4. Quản lý Quá trình Chat & Sidebar
 window.toggleSidebar = () => {
     document.getElementById("sidebar")?.classList.toggle("open");
     document.getElementById("overlay")?.classList.toggle("active");
@@ -312,7 +327,7 @@ function renderMessages(messages) {
     if (!chatBox) return;
 
     if (!messages || messages.length === 0) {
-        chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy nhập câu hỏi hoặc tải ảnh/tệp lên để bắt đầu...</div></div>`;
+        chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy nhập câu hỏi hoặc gửi ảnh lên để bắt đầu...</div></div>`;
         return;
     }
     chatBox.innerHTML = messages.map(m => {
@@ -335,7 +350,7 @@ function cleanResponseText(text) {
     return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
 }
 
-// 5. Gửi Tin Nhắn
+// 5. Gửi Tin Nhắn & Stream Phản Hồi
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
     const prompt = tx.value.trim();
@@ -366,7 +381,7 @@ window.sendMessage = async function() {
 
     const chatBox = document.getElementById("chatBox");
     const msgId = "ai-" + Date.now();
-    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai"><div class="message ai-msg streaming-cursor" id="${msgId}">AI đang suy nghĩ...</div></div>`);
+    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai"><div class="message ai-msg streaming-cursor" id="${msgId}">AI đang xử lý...</div></div>`);
     chatBox.scrollTop = chatBox.scrollHeight;
 
     const targetMsgEl = document.getElementById(msgId);
@@ -374,15 +389,15 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Xử lý hình ảnh nếu có
+        // Xử lý ảnh với Gemini 3.6 Flash
         if (currentFile && currentFile.type && currentFile.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh bằng Gemini 3.6 Flash...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh qua Gemini 3.6 Flash...";
             const visionResult = await processVisionWithGemini(currentFile.base64, currentFile.type, prompt);
 
             if (visionResult) {
                 apiContent = `[Thông tin chi tiết trích xuất từ ảnh]:\n${visionResult}\n\n[Yêu cầu của người dùng]: ${prompt || "Mô tả hình ảnh này"}`;
             } else {
-                apiContent = `[Không thể đọc hình ảnh này].\n${prompt}`;
+                apiContent = `[Không thể đọc hình ảnh này do lỗi hệ thống/API Key].\n${prompt}`;
             }
         }
 
@@ -480,7 +495,7 @@ window.sendMessage = async function() {
                             charQueue.push(...content.split(''));
                         }
                     } catch (e) {
-                        console.error("Lỗi giải mã chuỗi phản hồi:", e);
+                        console.error("Lỗi parse stream:", e);
                     }
                 }
             }
@@ -548,6 +563,6 @@ document.getElementById("chatBox")?.addEventListener("click", function(e) {
     }
 });
 
-// Khởi tạo
+// Khởi tạo trạng thái ban đầu
 if (chats.length > 0) loadChat(chats[0].id);
 else createNewChat();

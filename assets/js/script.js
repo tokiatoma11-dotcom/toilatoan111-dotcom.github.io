@@ -1,3 +1,7 @@
+const CONFIG = {
+    API_BASE_URL: "https://toilatoan111-dotcom-github-io.onrender.com"
+};
+
 let chats = JSON.parse(localStorage.getItem("multi_ai_chats_v26")) || [];
 let currentChatId = null;
 let selectedModel = "gpt_oss_120b";
@@ -7,7 +11,7 @@ let isWebSearchEnabled = false;
 let currentEffort = "medium";
 let isThinkingEnabled = true;
 
-// Gọi Backend Python để xử lý ảnh bằng Gemini 3.6 Flash
+// Gọi Backend Python để xử lý ảnh bằng Gemini Vision
 async function processVisionWithGemini(base64Data, mimeType, userQuery) {
     try {
         const res = await fetch(`${CONFIG.API_BASE_URL}/api/vision`, {
@@ -161,7 +165,10 @@ window.handleFileSelect = function(e) {
 
 window.clearSelectedFile = function() {
     selectedFile = { base64: null, type: null, name: null, textContent: null };
-    ['imageInput', 'videoInput', 'fileInput'].forEach(id => document.getElementById(id).value = '');
+    ['imageInput', 'videoInput', 'fileInput'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
     document.getElementById("filePreview").classList.remove("active");
 };
 
@@ -271,14 +278,13 @@ window.sendMessage = async function() {
     try {
         let apiContent = prompt;
 
-        // Trích xuất hình ảnh từ Backend Gemini
         if (file && file.type.startsWith('image/')) {
-            targetMsgEl.innerText = "đang phân tích hình ảnh...";
+            targetMsgEl.innerText = "Đang phân tích hình ảnh...";
             const visionResult = await processVisionWithGemini(file.base64, file.type, prompt);
             if (visionResult) {
-                apiContent = `[Thông tin trích xuất từ hình ảnh bằng Gemini 3.6 Flash]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
+                apiContent = `[Thông tin trích xuất từ hình ảnh]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
             } else {
-                apiContent = `[Hệ thống: Không thể trích xuất hình ảnh ngầm, hãy phân tích thông thường].\n${prompt}`;
+                apiContent = `[Hệ thống: Không thể trích xuất hình ảnh, hãy phân tích thông thường].\n${prompt}`;
             }
         }
 
@@ -297,25 +303,23 @@ window.sendMessage = async function() {
         let modelName = selectedModel === "gpt_oss_20b" ? "openai/gpt-oss-20b" : "openai/gpt-oss-120b";
 
         const effortConfigs = {
-            low:    { effort: "low",    temp: 0.2, top_p: 0.8 },
-            medium: { effort: "medium", temp: 0.5, top_p: 0.9 },
-            high:   { effort: "high",   temp: 0.7, top_p: 0.95 },
-            extra:  { effort: "high",   temp: 0.85, top_p: 1.0 },
-            max:    { effort: "high",   temp: 1.0,  top_p: 1.0 }
+            low: { temp: 0.2 },
+            medium: { temp: 0.5 },
+            high: { temp: 0.7 },
+            extra: { temp: 0.85 },
+            max: { temp: 1.0 }
         };
 
         const config = effortConfigs[currentEffort] || effortConfigs["medium"];
 
-        // Gọi API Chat sang Render Backend
+        // Gọi API Chat sang Render Backend (Đã loại bỏ top_p và reasoning_effort để tránh lỗi 422)
         const res = await fetch(`${CONFIG.API_BASE_URL}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 model: modelName,
                 messages: payload,
-                temperature: isThinkingEnabled ? config.temp : 0.1,
-                top_p: config.top_p,
-                reasoning_effort: isThinkingEnabled ? config.effort : "low"
+                temperature: isThinkingEnabled ? config.temp : 0.1
             })
         });
 

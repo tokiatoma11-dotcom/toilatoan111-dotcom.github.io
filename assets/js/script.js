@@ -33,14 +33,14 @@ async function processVisionWithGemini(base64Data, mimeType, userQuery) {
 }
 
 window.toggleEffortDropdown = function(e) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     document.getElementById("modelDropdownMenu")?.classList.remove("active");
     document.getElementById("modelDropdownBtn")?.classList.remove("active");
     
     const menu = document.getElementById("effortDropdownMenu");
     const btn = document.getElementById("effortDropdownBtn");
-    menu.classList.toggle("active");
-    btn.classList.toggle("active");
+    menu?.classList.toggle("active");
+    btn?.classList.toggle("active");
 };
 
 window.selectEffort = function(value) {
@@ -51,7 +51,8 @@ window.selectEffort = function(value) {
     });
 
     const labels = { low: 'Low', medium: 'Medium', high: 'High', extra: 'Extra', max: 'Max' };
-    document.getElementById("effortBtnLabel").innerText = labels[value];
+    const labelEl = document.getElementById("effortBtnLabel");
+    if (labelEl) labelEl.innerText = labels[value] || value;
     
     document.getElementById("effortDropdownMenu")?.classList.remove("active");
     document.getElementById("effortDropdownBtn")?.classList.remove("active");
@@ -62,32 +63,26 @@ window.toggleThinking = function(enabled) { isThinkingEnabled = enabled; };
 window.toggleWebSearch = function() {
     isWebSearchEnabled = !isWebSearchEnabled;
     const btn = document.getElementById("webSearchToggle");
-    btn.classList.toggle("active", isWebSearchEnabled);
-    document.getElementById("searchStatus").innerText = isWebSearchEnabled ? "Web: Bật" : "Web: Tắt";
+    btn?.classList.toggle("active", isWebSearchEnabled);
+    const status = document.getElementById("searchStatus");
+    if (status) status.innerText = isWebSearchEnabled ? "Web: Bật" : "Web: Tắt";
 };
 
 window.toggleModelDropdown = function(e) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     document.getElementById("effortDropdownMenu")?.classList.remove("active");
     document.getElementById("effortDropdownBtn")?.classList.remove("active");
 
     const menu = document.getElementById("modelDropdownMenu");
     const btn = document.getElementById("modelDropdownBtn");
-    menu.classList.toggle("active");
-    btn.classList.toggle("active");
+    menu?.classList.toggle("active");
+    btn?.classList.toggle("active");
 };
-
-document.addEventListener('click', () => {
-    document.getElementById("modelDropdownMenu")?.classList.remove("active");
-    document.getElementById("modelDropdownBtn")?.classList.remove("active");
-    document.getElementById("effortDropdownMenu")?.classList.remove("active");
-    document.getElementById("effortDropdownBtn")?.classList.remove("active");
-    document.getElementById("attachMenu")?.classList.remove('active');
-});
 
 window.selectModel = function(value, label) {
     selectedModel = value;
-    document.getElementById("currentModelLabel").innerText = label;
+    const labelEl = document.getElementById("currentModelLabel");
+    if (labelEl) labelEl.innerText = label;
     document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
         opt.classList.toggle("selected", opt.getAttribute("data-value") === value);
     });
@@ -107,42 +102,59 @@ async function performWebSearch(query) {
 
 function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
     const modalOverlay = document.getElementById("customModalOverlay");
-    document.getElementById("modalTitle").innerText = title;
-    document.getElementById("modalDesc").innerText = desc;
+    if (!modalOverlay) {
+        if (confirm(`${title}\n${desc}`)) { if (onOk) onOk(); } else { if (onCancel) onCancel(); }
+        return;
+    }
+    const tEl = document.getElementById("modalTitle");
+    const dEl = document.getElementById("modalDesc");
+    if (tEl) tEl.innerText = title;
+    if (dEl) dEl.innerText = desc;
     
     const okBtn = document.getElementById("modalOkBtn");
     const cancelBtn = document.getElementById("modalCancelBtn");
     
-    okBtn.innerText = okText;
-    cancelBtn.innerText = cancelText;
+    if (okBtn) okBtn.innerText = okText;
+    if (cancelBtn) cancelBtn.innerText = cancelText;
 
     modalOverlay.classList.add("active");
 
-    const newOkBtn = okBtn.cloneNode(true);
-    const newCancelBtn = cancelBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newOkBtn, okBtn);
-    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+    if (okBtn && cancelBtn) {
+        const newOkBtn = okBtn.cloneNode(true);
+        const newCancelBtn = cancelBtn.cloneNode(true);
+        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
 
-    newOkBtn.addEventListener("click", () => {
-        modalOverlay.classList.remove("active");
-        if (onOk) onOk();
-    });
+        newOkBtn.addEventListener("click", () => {
+            modalOverlay.classList.remove("active");
+            if (onOk) onOk();
+        });
 
-    newCancelBtn.addEventListener("click", () => {
-        modalOverlay.classList.remove("active");
-        if (onCancel) onCancel();
-    });
+        newCancelBtn.addEventListener("click", () => {
+            modalOverlay.classList.remove("active");
+            if (onCancel) onCancel();
+        });
+    }
 }
 
-window.toggleAttachmentMenu = (e) => { e.stopPropagation(); document.getElementById('attachMenu').classList.toggle('active'); };
-window.openInput = (id) => { document.getElementById(id).click(); document.getElementById('attachMenu').classList.remove('active'); };
+window.toggleAttachmentMenu = (e) => { 
+    if (e) e.stopPropagation(); 
+    document.getElementById('attachMenu')?.classList.toggle('active'); 
+};
+
+window.openInput = (id) => { 
+    document.getElementById(id)?.click(); 
+    document.getElementById('attachMenu')?.classList.remove('active'); 
+};
 
 window.openMediaViewer = (src, type) => {
     const container = document.getElementById("viewerMediaContainer");
-    container.innerHTML = type === 'image' ? `<img src="${src}" class="image-viewer-content">` : `<video src="${src}" class="image-viewer-content" controls autoplay></video>`;
-    document.getElementById("imageViewer").classList.add("active");
+    if (container) {
+        container.innerHTML = type === 'image' ? `<img src="${src}" class="image-viewer-content">` : `<video src="${src}" class="image-viewer-content" controls autoplay></video>`;
+    }
+    document.getElementById("imageViewer")?.classList.add("active");
 };
-window.closeImageViewer = () => document.getElementById("imageViewer").classList.remove("active");
+window.closeImageViewer = () => document.getElementById("imageViewer")?.classList.remove("active");
 
 window.handleFileSelect = function(e) {
     const file = e.target.files[0];
@@ -157,8 +169,9 @@ window.handleFileSelect = function(e) {
     const reader = new FileReader();
     reader.onload = (evt) => {
         selectedFile.base64 = evt.target.result;
-        document.getElementById("fileName").innerText = `📎 ${file.name}`;
-        document.getElementById("filePreview").classList.add("active");
+        const nameEl = document.getElementById("fileName");
+        if (nameEl) nameEl.innerText = `📎 ${file.name}`;
+        document.getElementById("filePreview")?.classList.add("active");
     };
     reader.readAsDataURL(file);
 };
@@ -169,12 +182,12 @@ window.clearSelectedFile = function() {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
-    document.getElementById("filePreview").classList.remove("active");
+    document.getElementById("filePreview")?.classList.remove("active");
 };
 
 window.toggleSidebar = () => {
-    document.getElementById("sidebar").classList.toggle("open");
-    document.getElementById("overlay").classList.toggle("active");
+    document.getElementById("sidebar")?.classList.toggle("open");
+    document.getElementById("overlay")?.classList.toggle("active");
 };
 
 window.promptNewChat = function() {
@@ -212,7 +225,7 @@ window.handleModelChange = function(newModel) {
 };
 
 window.deleteChat = function(e, id) {
-    e.stopPropagation();
+    if (e) e.stopPropagation();
     showCustomModal("Xóa cuộc trò chuyện", "Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?", "Xóa", "Hủy", () => {
         chats = chats.filter(c => c.id !== id);
         if (currentChatId === id) {
@@ -226,6 +239,7 @@ window.deleteChat = function(e, id) {
 
 function renderMessages(messages) {
     const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
     if (!messages || messages.length === 0) {
         chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy nhập câu hỏi hoặc tải ảnh/bảng biểu lên để bắt đầu...</div></div>`;
         return;
@@ -240,7 +254,8 @@ function renderMessages(messages) {
             }
             return `<div class="message-wrapper user"><div class="message user-msg">${media}${m.text ? m.text.replace(/</g, "&lt;").replace(/\n/g, '<br>') : ''}</div></div>`;
         } else {
-            return `<div class="message-wrapper ai"><div class="message ai-msg">${marked.parse(cleanResponseText(m.text || ''))}</div></div>`;
+            const parsedText = typeof marked !== 'undefined' ? marked.parse(cleanResponseText(m.text || '')) : cleanResponseText(m.text || '');
+            return `<div class="message-wrapper ai"><div class="message ai-msg">${parsedText}</div></div>`;
         }
     }).join('');
     chatBox.scrollTop = chatBox.scrollHeight;
@@ -252,11 +267,12 @@ function cleanResponseText(text) {
 
 window.sendMessage = async function() {
     const tx = document.getElementById("userInput");
-    const prompt = tx.value.trim();
+    const prompt = tx ? tx.value.trim() : "";
     if (!prompt && !selectedFile.base64) return;
 
     if (!currentChatId) createNewChat();
     const active = chats.find(c => c.id === currentChatId);
+    if (!active) return;
     active.model = selectedModel;
 
     const file = selectedFile.base64 ? { ...selectedFile } : null;
@@ -264,11 +280,14 @@ window.sendMessage = async function() {
     active.messages.push({ role: "user", text: prompt || `Đã gửi tệp: ${file.name}`, file });
     if (active.messages.length === 1) active.title = prompt ? prompt.substring(0, 20) + "..." : file.name;
 
-    tx.value = ""; clearSelectedFile();
+    if (tx) tx.value = ""; 
+    clearSelectedFile();
     renderMessages(active.messages);
     saveAndRender();
 
     const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
+
     const msgId = "ai-" + Date.now();
     chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai"><div class="message ai-msg streaming-cursor" id="${msgId}">AI đang suy nghĩ...</div></div>`);
     chatBox.scrollTop = chatBox.scrollHeight;
@@ -279,7 +298,7 @@ window.sendMessage = async function() {
         let apiContent = prompt;
 
         if (file && file.type.startsWith('image/')) {
-            targetMsgEl.innerText = "Đang phân tích hình ảnh...";
+            if (targetMsgEl) targetMsgEl.innerText = "Đang phân tích hình ảnh...";
             const visionResult = await processVisionWithGemini(file.base64, file.type, prompt);
             if (visionResult) {
                 apiContent = `[Thông tin trích xuất từ hình ảnh]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
@@ -312,7 +331,6 @@ window.sendMessage = async function() {
 
         const config = effortConfigs[currentEffort] || effortConfigs["medium"];
 
-        // Gọi API Chat sang Render Backend (Đã loại bỏ top_p và reasoning_effort để tránh lỗi 422)
         const res = await fetch(`${CONFIG.API_BASE_URL}/api/chat`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -329,7 +347,7 @@ window.sendMessage = async function() {
         let displayReply = "";
         let charQueue = [];
         let isStreamingFinished = false;
-        targetMsgEl.innerText = "";
+        if (targetMsgEl) targetMsgEl.innerText = "";
 
         const renderInterval = setInterval(() => {
             if (charQueue.length > 0) {
@@ -337,11 +355,13 @@ window.sendMessage = async function() {
                 for (let i = 0; i < chunkSize && charQueue.length > 0; i++) {
                     displayReply += charQueue.shift();
                 }
-                targetMsgEl.innerHTML = marked.parse(cleanResponseText(displayReply));
+                if (targetMsgEl) {
+                    targetMsgEl.innerHTML = typeof marked !== 'undefined' ? marked.parse(cleanResponseText(displayReply)) : cleanResponseText(displayReply);
+                }
                 chatBox.scrollTop = chatBox.scrollHeight;
             } else if (isStreamingFinished) {
                 clearInterval(renderInterval);
-                targetMsgEl.classList.remove("streaming-cursor");
+                targetMsgEl?.classList.remove("streaming-cursor");
                 active.messages.push({ role: "ai", text: fullReply });
                 saveAndRender();
             }
@@ -390,12 +410,15 @@ window.sendMessage = async function() {
 
 function saveAndRender() {
     localStorage.setItem("multi_ai_chats_v26", JSON.stringify(chats));
-    document.getElementById("historyList").innerHTML = chats.map(c => `
-        <div class="history-item ${c.id === currentChatId ? 'active' : ''}" onclick="loadChat(${c.id})">
-            <span class="history-title">${c.title.replace(/</g, "&lt;")}</span>
-            <button class="delete-chat-btn" onclick="deleteChat(event, ${c.id})">×</button>
-        </div>
-    `).join('');
+    const hList = document.getElementById("historyList");
+    if (hList) {
+        hList.innerHTML = chats.map(c => `
+            <div class="history-item ${c.id === currentChatId ? 'active' : ''}" onclick="loadChat(${c.id})">
+                <span class="history-title">${c.title.replace(/</g, "&lt;")}</span>
+                <button class="delete-chat-btn" onclick="deleteChat(event, ${c.id})">×</button>
+            </div>
+        `).join('');
+    }
 }
 
 window.loadChat = function(id) {
@@ -404,7 +427,8 @@ window.loadChat = function(id) {
     if (active) {
         selectedModel = active.model || 'gpt_oss_120b';
         const labels = { 'gpt_oss_120b': 'GPT OSS 120B', 'gpt_oss_20b': 'GPT OSS 20B' };
-        document.getElementById("currentModelLabel").innerText = labels[selectedModel];
+        const labelEl = document.getElementById("currentModelLabel");
+        if (labelEl) labelEl.innerText = labels[selectedModel] || selectedModel;
         document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
             opt.classList.toggle("selected", opt.getAttribute("data-value") === selectedModel);
         });
@@ -413,28 +437,25 @@ window.loadChat = function(id) {
     saveAndRender();
 };
 
-function showCopyToast(message = "📋 Đã sao chép liên kết vào khay nhớ tạm!") {
-    const toast = document.getElementById("copyToast");
-    if (!toast) return;
-    toast.innerText = message;
-    toast.classList.add("show");
-    setTimeout(() => toast.classList.remove("show"), 2000);
-}
+document.addEventListener("DOMContentLoaded", () => {
+    document.addEventListener('click', () => {
+        document.getElementById("modelDropdownMenu")?.classList.remove("active");
+        document.getElementById("modelDropdownBtn")?.classList.remove("active");
+        document.getElementById("effortDropdownMenu")?.classList.remove("active");
+        document.getElementById("effortDropdownBtn")?.classList.remove("active");
+        document.getElementById("attachMenu")?.classList.remove('active');
+    });
 
-document.getElementById("chatBox").addEventListener("click", function(e) {
-    const link = e.target.closest("a");
-    if (link) {
-        e.preventDefault();
-        const urlToCopy = link.getAttribute("href") || link.href;
-        if (urlToCopy) {
-            navigator.clipboard.writeText(urlToCopy).then(() => {
-                showCopyToast();
-            }).catch(err => {
-                console.error("Lỗi sao chép:", err);
-            });
-        }
+    const userInput = document.getElementById("userInput");
+    if (userInput) {
+        userInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
     }
-});
 
-if (chats.length > 0) loadChat(chats[0].id);
-else createNewChat();
+    if (chats.length > 0) loadChat(chats[0].id);
+    else createNewChat();
+});

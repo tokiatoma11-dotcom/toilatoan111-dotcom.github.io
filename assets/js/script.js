@@ -7,165 +7,43 @@ let currentChatId = null;
 let selectedModel = "gpt_oss_120b";
 let selectedFile = { base64: null, type: null, name: null, textContent: null };
 let isWebSearchEnabled = false;
-
 let currentEffort = "medium";
 let isThinkingEnabled = true;
 
-// Gọi Backend Python để xử lý ảnh bằng Gemini Vision
-async function processVisionWithGemini(base64Data, mimeType, userQuery) {
-    try {
-        const res = await fetch(`${CONFIG.API_BASE_URL}/api/vision`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                base64_data: base64Data,
-                mime_type: mimeType,
-                user_query: userQuery
-            })
-        });
-        if (!res.ok) return null;
-        const data = await res.json();
-        return data.text;
-    } catch (err) {
-        console.error("Lỗi gọi API Vision Backend:", err);
-        return null;
-    }
-}
+// 1. Gán trực tiếp hàm vào Window để HTML onclick luôn nhận
+window.toggleSidebar = () => {
+    document.getElementById("sidebar")?.classList.toggle("open");
+    document.getElementById("overlay")?.classList.toggle("active");
+};
 
-window.toggleEffortDropdown = function(e) {
+window.toggleModelDropdown = (e) => {
     if (e) e.stopPropagation();
-    document.getElementById("modelDropdownMenu")?.classList.remove("active");
-    document.getElementById("modelDropdownBtn")?.classList.remove("active");
-    
-    const menu = document.getElementById("effortDropdownMenu");
-    const btn = document.getElementById("effortDropdownBtn");
-    menu?.classList.toggle("active");
-    btn?.classList.toggle("active");
+    document.getElementById("modelDropdownMenu")?.classList.toggle("active");
 };
 
-window.selectEffort = function(value) {
-    currentEffort = value;
-    document.querySelectorAll("#effortDropdownMenu .model-option").forEach(item => {
-        const isTarget = item.getAttribute("data-value") === value;
-        item.classList.toggle("selected", isTarget);
-    });
-
-    const labels = { low: 'Low', medium: 'Medium', high: 'High', extra: 'Extra', max: 'Max' };
-    const labelEl = document.getElementById("effortBtnLabel");
-    if (labelEl) labelEl.innerText = labels[value] || value;
-    
-    document.getElementById("effortDropdownMenu")?.classList.remove("active");
-    document.getElementById("effortDropdownBtn")?.classList.remove("active");
-};
-
-window.toggleThinking = function(enabled) { isThinkingEnabled = enabled; };
-
-window.toggleWebSearch = function() {
-    isWebSearchEnabled = !isWebSearchEnabled;
-    const btn = document.getElementById("webSearchToggle");
-    btn?.classList.toggle("active", isWebSearchEnabled);
-    const status = document.getElementById("searchStatus");
-    if (status) status.innerText = isWebSearchEnabled ? "Web: Bật" : "Web: Tắt";
-};
-
-window.toggleModelDropdown = function(e) {
-    if (e) e.stopPropagation();
-    document.getElementById("effortDropdownMenu")?.classList.remove("active");
-    document.getElementById("effortDropdownBtn")?.classList.remove("active");
-
-    const menu = document.getElementById("modelDropdownMenu");
-    const btn = document.getElementById("modelDropdownBtn");
-    menu?.classList.toggle("active");
-    btn?.classList.toggle("active");
-};
-
-window.selectModel = function(value, label) {
+window.selectModel = (value, label) => {
     selectedModel = value;
     const labelEl = document.getElementById("currentModelLabel");
     if (labelEl) labelEl.innerText = label;
-    document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
-        opt.classList.toggle("selected", opt.getAttribute("data-value") === value);
-    });
-    handleModelChange(value);
+    document.getElementById("modelDropdownMenu")?.classList.remove("active");
 };
 
-async function performWebSearch(query) {
-    try {
-        const res = await fetch(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`);
-        const data = await res.json();
-        let text = "";
-        if (data.RelatedTopics) text = data.RelatedTopics.filter(i => i.Text).slice(0, 3).map(i => `- ${i.Text}`).join('\n');
-        if (!text && data.Abstract) text = `- ${data.Abstract}`;
-        return text ? `[Web Search Results for "${query}"]:\n${text}` : "";
-    } catch { return ""; }
-}
-
-function showCustomModal(title, desc, okText, cancelText, onOk, onCancel) {
-    const modalOverlay = document.getElementById("customModalOverlay");
-    if (!modalOverlay) {
-        if (confirm(`${title}\n${desc}`)) { if (onOk) onOk(); } else { if (onCancel) onCancel(); }
-        return;
-    }
-    const tEl = document.getElementById("modalTitle");
-    const dEl = document.getElementById("modalDesc");
-    if (tEl) tEl.innerText = title;
-    if (dEl) dEl.innerText = desc;
-    
-    const okBtn = document.getElementById("modalOkBtn");
-    const cancelBtn = document.getElementById("modalCancelBtn");
-    
-    if (okBtn) okBtn.innerText = okText;
-    if (cancelBtn) cancelBtn.innerText = cancelText;
-
-    modalOverlay.classList.add("active");
-
-    if (okBtn && cancelBtn) {
-        const newOkBtn = okBtn.cloneNode(true);
-        const newCancelBtn = cancelBtn.cloneNode(true);
-        okBtn.parentNode.replaceChild(newOkBtn, okBtn);
-        cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
-
-        newOkBtn.addEventListener("click", () => {
-            modalOverlay.classList.remove("active");
-            if (onOk) onOk();
-        });
-
-        newCancelBtn.addEventListener("click", () => {
-            modalOverlay.classList.remove("active");
-            if (onCancel) onCancel();
-        });
-    }
-}
-
-window.toggleAttachmentMenu = (e) => { 
-    if (e) e.stopPropagation(); 
-    document.getElementById('attachMenu')?.classList.toggle('active'); 
+window.toggleAttachmentMenu = (e) => {
+    if (e) e.stopPropagation();
+    document.getElementById("attachMenu")?.classList.toggle("active");
 };
 
-window.openInput = (id) => { 
-    document.getElementById(id)?.click(); 
-    document.getElementById('attachMenu')?.classList.remove('active'); 
+window.openInput = (id) => {
+    document.getElementById(id)?.click();
+    document.getElementById("attachMenu")?.classList.remove("active");
 };
 
-window.openMediaViewer = (src, type) => {
-    const container = document.getElementById("viewerMediaContainer");
-    if (container) {
-        container.innerHTML = type === 'image' ? `<img src="${src}" class="image-viewer-content">` : `<video src="${src}" class="image-viewer-content" controls autoplay></video>`;
-    }
-    document.getElementById("imageViewer")?.classList.add("active");
-};
-window.closeImageViewer = () => document.getElementById("imageViewer")?.classList.remove("active");
-
-window.handleFileSelect = function(e) {
+window.handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     selectedFile.name = file.name;
     selectedFile.type = file.type;
-    if (file.type.startsWith('text/') || file.name.endsWith('.txt') || file.name.endsWith('.csv')) {
-        const reader = new FileReader();
-        reader.onload = (evt) => selectedFile.textContent = evt.target.result;
-        reader.readAsText(file);
-    }
+    
     const reader = new FileReader();
     reader.onload = (evt) => {
         selectedFile.base64 = evt.target.result;
@@ -176,7 +54,7 @@ window.handleFileSelect = function(e) {
     reader.readAsDataURL(file);
 };
 
-window.clearSelectedFile = function() {
+window.clearSelectedFile = () => {
     selectedFile = { base64: null, type: null, name: null, textContent: null };
     ['imageInput', 'videoInput', 'fileInput'].forEach(id => {
         const el = document.getElementById(id);
@@ -185,227 +63,33 @@ window.clearSelectedFile = function() {
     document.getElementById("filePreview")?.classList.remove("active");
 };
 
-window.toggleSidebar = () => {
-    document.getElementById("sidebar")?.classList.toggle("open");
-    document.getElementById("overlay")?.classList.toggle("active");
+window.promptNewChat = () => {
+    createNewChat();
 };
 
-window.promptNewChat = function() {
-    const active = chats.find(c => c.id === currentChatId);
-    if (active && active.messages.length > 0) {
-        showCustomModal("Cuộc trò chuyện mới", "Bạn muốn lưu cuộc trò chuyện hiện tại và bắt đầu đoạn chat mới chứ?", "Tạo mới", "Hủy", () => createNewChat(), () => {});
-    } else {
-        createNewChat();
-    }
-};
-
-window.createNewChat = function() {
+window.createNewChat = () => {
     currentChatId = Date.now();
-    chats.unshift({ id: currentChatId, title: "Cuộc trò chuyện mới", model: selectedModel, messages: [] });
+    chats.unshift({ id: currentChatId, title: "Cuộc trò chuyện mới", messages: [] });
     saveAndRender();
     renderMessages([]);
 };
 
-window.handleModelChange = function(newModel) {
-    const active = chats.find(c => c.id === currentChatId);
-    if (active && active.messages.length > 0) {
-        showCustomModal("Chuyển đổi mô hình AI", "Bạn muốn giữ lại đoạn chat hiện tại hay tạo cuộc trò chuyện mới với AI này?", "Tạo chat mới", "Giữ đoạn chat", () => {
-            createNewChat();
-            selectedModel = newModel;
-            chats[0].model = newModel;
-            saveAndRender();
-        }, () => {
-            active.model = newModel;
-            saveAndRender();
-        });
+window.deleteChat = (e, id) => {
+    if (e) e.stopPropagation();
+    chats = chats.filter(c => c.id !== id);
+    if (currentChatId === id) {
+        if (chats.length > 0) loadChat(chats[0].id);
+        else createNewChat();
     } else {
-        if (active) active.model = newModel;
         saveAndRender();
     }
 };
 
-window.deleteChat = function(e, id) {
-    if (e) e.stopPropagation();
-    showCustomModal("Xóa cuộc trò chuyện", "Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?", "Xóa", "Hủy", () => {
-        chats = chats.filter(c => c.id !== id);
-        if (currentChatId === id) {
-            if (chats.length > 0) loadChat(chats[0].id);
-            else createNewChat();
-        } else {
-            saveAndRender();
-        }
-    }, () => {});
-};
-
-function renderMessages(messages) {
-    const chatBox = document.getElementById("chatBox");
-    if (!chatBox) return;
-    if (!messages || messages.length === 0) {
-        chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy nhập câu hỏi hoặc tải ảnh/bảng biểu lên để bắt đầu...</div></div>`;
-        return;
-    }
-    chatBox.innerHTML = messages.map(m => {
-        if (m.role === 'user') {
-            let media = '';
-            if (m.file) {
-                if (m.file.type.startsWith('image/')) media = `<img src="${m.file.base64}" class="chat-img" onclick="openMediaViewer('${m.file.base64}', 'image')">`;
-                else if (m.file.type.startsWith('video/')) media = `<video src="${m.file.base64}" class="chat-video" onclick="openMediaViewer('${m.file.base64}', 'video')"></video>`;
-                else media = `<div class="file-card">📄 ${m.file.name}</div>`;
-            }
-            return `<div class="message-wrapper user"><div class="message user-msg">${media}${m.text ? m.text.replace(/</g, "&lt;").replace(/\n/g, '<br>') : ''}</div></div>`;
-        } else {
-            const parsedText = typeof marked !== 'undefined' ? marked.parse(cleanResponseText(m.text || '')) : cleanResponseText(m.text || '');
-            return `<div class="message-wrapper ai"><div class="message ai-msg">${parsedText}</div></div>`;
-        }
-    }).join('');
-    chatBox.scrollTop = chatBox.scrollHeight;
-}
-
-function cleanResponseText(text) {
-    return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-}
-
-window.sendMessage = async function() {
-    const tx = document.getElementById("userInput");
-    const prompt = tx ? tx.value.trim() : "";
-    if (!prompt && !selectedFile.base64) return;
-
-    if (!currentChatId) createNewChat();
+window.loadChat = (id) => {
+    currentChatId = id;
     const active = chats.find(c => c.id === currentChatId);
-    if (!active) return;
-    active.model = selectedModel;
-
-    const file = selectedFile.base64 ? { ...selectedFile } : null;
-
-    active.messages.push({ role: "user", text: prompt || `Đã gửi tệp: ${file.name}`, file });
-    if (active.messages.length === 1) active.title = prompt ? prompt.substring(0, 20) + "..." : file.name;
-
-    if (tx) tx.value = ""; 
-    clearSelectedFile();
-    renderMessages(active.messages);
+    if (active) renderMessages(active.messages);
     saveAndRender();
-
-    const chatBox = document.getElementById("chatBox");
-    if (!chatBox) return;
-
-    const msgId = "ai-" + Date.now();
-    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai"><div class="message ai-msg streaming-cursor" id="${msgId}">AI đang suy nghĩ...</div></div>`);
-    chatBox.scrollTop = chatBox.scrollHeight;
-
-    const targetMsgEl = document.getElementById(msgId);
-
-    try {
-        let apiContent = prompt;
-
-        if (file && file.type.startsWith('image/')) {
-            if (targetMsgEl) targetMsgEl.innerText = "Đang phân tích hình ảnh...";
-            const visionResult = await processVisionWithGemini(file.base64, file.type, prompt);
-            if (visionResult) {
-                apiContent = `[Thông tin trích xuất từ hình ảnh]:\n${visionResult}\n\n[Câu hỏi/Yêu cầu của người dùng]: ${prompt || "Hãy phân tích thông tin trên hình ảnh."}`;
-            } else {
-                apiContent = `[Hệ thống: Không thể trích xuất hình ảnh, hãy phân tích thông thường].\n${prompt}`;
-            }
-        }
-
-        if (file?.textContent) {
-            apiContent += `\n\n[Nội dung tệp dữ liệu ${file.name}]:\n${file.textContent}\n\nHãy tổng hợp, phân tích các số liệu hoặc bảng thông tin trên.`;
-        }
-
-        if (isWebSearchEnabled && prompt) {
-            const searchRes = await performWebSearch(prompt);
-            if (searchRes) apiContent = `${searchRes}\n\n[Dựa vào thông tin trên, hãy trả lời]: ${prompt}`;
-        }
-
-        active.messages[active.messages.length - 1].apiText = apiContent;
-
-        const payload = active.messages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.apiText || m.text }));
-        let modelName = selectedModel === "gpt_oss_20b" ? "openai/gpt-oss-20b" : "openai/gpt-oss-120b";
-
-        const effortConfigs = {
-            low: { temp: 0.2 },
-            medium: { temp: 0.5 },
-            high: { temp: 0.7 },
-            extra: { temp: 0.85 },
-            max: { temp: 1.0 }
-        };
-
-        const config = effortConfigs[currentEffort] || effortConfigs["medium"];
-
-        const res = await fetch(`${CONFIG.API_BASE_URL}/api/chat`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                model: modelName,
-                messages: payload,
-                temperature: isThinkingEnabled ? config.temp : 0.1
-            })
-        });
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-
-        let fullReply = "";
-        let displayReply = "";
-        let charQueue = [];
-        let isStreamingFinished = false;
-        if (targetMsgEl) targetMsgEl.innerText = "";
-
-        const renderInterval = setInterval(() => {
-            if (charQueue.length > 0) {
-                const chunkSize = charQueue.length > 20 ? 3 : 1;
-                for (let i = 0; i < chunkSize && charQueue.length > 0; i++) {
-                    displayReply += charQueue.shift();
-                }
-                if (targetMsgEl) {
-                    targetMsgEl.innerHTML = typeof marked !== 'undefined' ? marked.parse(cleanResponseText(displayReply)) : cleanResponseText(displayReply);
-                }
-                chatBox.scrollTop = chatBox.scrollHeight;
-            } else if (isStreamingFinished) {
-                clearInterval(renderInterval);
-                targetMsgEl?.classList.remove("streaming-cursor");
-                active.messages.push({ role: "ai", text: fullReply });
-                saveAndRender();
-            }
-        }, 5);
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let buffer = "";
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-
-            for (const line of lines) {
-                const cleanedLine = line.trim();
-                if (!cleanedLine || cleanedLine.startsWith(':') || cleanedLine === 'data: [DONE]') continue;
-
-                if (cleanedLine.startsWith('data: ')) {
-                    try {
-                        const parsed = JSON.parse(cleanedLine.replace('data: ', ''));
-                        const content = parsed.choices[0]?.delta?.content || "";
-                        if (content) {
-                            fullReply += content;
-                            charQueue.push(...content.split(''));
-                        }
-                    } catch (e) {
-                        console.error("Lỗi parse SSE:", e);
-                    }
-                }
-            }
-        }
-
-        isStreamingFinished = true;
-
-    } catch (err) {
-        if (targetMsgEl) {
-            targetMsgEl.classList.remove("streaming-cursor");
-            targetMsgEl.innerText = "⚠️ Lỗi kết nối: " + err.message;
-        }
-    }
 };
 
 function saveAndRender() {
@@ -421,29 +105,110 @@ function saveAndRender() {
     }
 }
 
-window.loadChat = function(id) {
-    currentChatId = id;
-    const active = chats.find(c => c.id === currentChatId);
-    if (active) {
-        selectedModel = active.model || 'gpt_oss_120b';
-        const labels = { 'gpt_oss_120b': 'GPT OSS 120B', 'gpt_oss_20b': 'GPT OSS 20B' };
-        const labelEl = document.getElementById("currentModelLabel");
-        if (labelEl) labelEl.innerText = labels[selectedModel] || selectedModel;
-        document.querySelectorAll("#modelDropdownMenu .model-option").forEach(opt => {
-            opt.classList.toggle("selected", opt.getAttribute("data-value") === selectedModel);
-        });
-        renderMessages(active.messages);
+function renderMessages(messages) {
+    const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
+    if (!messages || messages.length === 0) {
+        chatBox.innerHTML = `<div class="message-wrapper ai"><div class="message ai-msg">Xin chào! Hãy gửi câu hỏi để bắt đầu...</div></div>`;
+        return;
     }
+    chatBox.innerHTML = messages.map(m => {
+        if (m.role === 'user') {
+            return `<div class="message-wrapper user"><div class="message user-msg">${m.text.replace(/</g, "&lt;").replace(/\n/g, '<br>')}</div></div>`;
+        } else {
+            const txt = typeof marked !== 'undefined' ? marked.parse(m.text || '') : (m.text || '');
+            return `<div class="message-wrapper ai"><div class="message ai-msg">${txt}</div></div>`;
+        }
+    }).join('');
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// 2. Hàm gửi tin nhắn chính
+window.sendMessage = async function() {
+    const tx = document.getElementById("userInput");
+    const prompt = tx ? tx.value.trim() : "";
+    if (!prompt && !selectedFile.base64) return;
+
+    if (!currentChatId) createNewChat();
+    const active = chats.find(c => c.id === currentChatId);
+    if (!active) return;
+
+    active.messages.push({ role: "user", text: prompt || `Đã gửi tệp: ${selectedFile.name}` });
+    if (active.messages.length === 1) active.title = prompt ? prompt.substring(0, 15) + "..." : "Trò chuyện";
+
+    if (tx) tx.value = "";
+    clearSelectedFile();
+    renderMessages(active.messages);
     saveAndRender();
+
+    const chatBox = document.getElementById("chatBox");
+    if (!chatBox) return;
+
+    const msgId = "ai-" + Date.now();
+    chatBox.insertAdjacentHTML('beforeend', `<div class="message-wrapper ai"><div class="message ai-msg" id="${msgId}">AI đang suy nghĩ...</div></div>`);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    const targetMsgEl = document.getElementById(msgId);
+
+    try {
+        const payload = active.messages.map(m => ({
+            role: m.role === 'user' ? 'user' : 'assistant',
+            content: m.text
+        }));
+
+        const res = await fetch(`${CONFIG.API_BASE_URL}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                model: "gemini-2.5-flash",
+                messages: payload,
+                temperature: 0.5
+            })
+        });
+
+        if (!res.ok) throw new Error(`Lỗi HTTP: ${res.status}`);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let fullReply = "";
+        if (targetMsgEl) targetMsgEl.innerText = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                const cleaned = line.trim();
+                if (cleaned.startsWith('data: ') && cleaned !== 'data: [DONE]') {
+                    try {
+                        const parsed = JSON.parse(cleaned.replace('data: ', ''));
+                        const text = parsed.choices[0]?.delta?.content || "";
+                        fullReply += text;
+                        if (targetMsgEl) {
+                            targetMsgEl.innerHTML = typeof marked !== 'undefined' ? marked.parse(fullReply) : fullReply;
+                        }
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                    } catch (e) {}
+                }
+            }
+        }
+
+        active.messages.push({ role: "ai", text: fullReply });
+        saveAndRender();
+
+    } catch (err) {
+        if (targetMsgEl) targetMsgEl.innerText = "⚠️ " + err.message;
+    }
 };
 
+// 3. Khởi chạy sự kiện sau khi DOM sẵn sàng
 document.addEventListener("DOMContentLoaded", () => {
-    document.addEventListener('click', () => {
+    document.addEventListener("click", () => {
         document.getElementById("modelDropdownMenu")?.classList.remove("active");
-        document.getElementById("modelDropdownBtn")?.classList.remove("active");
-        document.getElementById("effortDropdownMenu")?.classList.remove("active");
-        document.getElementById("effortDropdownBtn")?.classList.remove("active");
-        document.getElementById("attachMenu")?.classList.remove('active');
+        document.getElementById("attachMenu")?.classList.remove("active");
     });
 
     const userInput = document.getElementById("userInput");
